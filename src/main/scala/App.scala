@@ -48,17 +48,23 @@ object Run extends App {
       searchControls.setSearchScope(SUBTREE_SCOPE)
       val searchBase = domain.split('.').mkString("DC=", ",DC=", "")
 
-      val (values, time) = timed {
+      val values = timed {
         context.search(searchBase, searchString, searchControls)
+      } { time =>
+        println(s"Query via $ip took ${time}ms")
       }
-      println(s"Query via $ip took ${time}ms")
-      values
+
+      withResource(values)(identity(_))
     }
   }
 
-  def timed[T](call: => T): (T, Long) = {
+  def timed[T](call: => T)(out: Long => Unit): T = {
     val start = System.currentTimeMillis()
-    (call, System.currentTimeMillis() - start)
+    try {
+      call
+    } finally {
+      out(System.currentTimeMillis() - start)
+    }
   }
 
   type UndeclaredClosable = {def close(): Unit}
@@ -77,11 +83,6 @@ object Run extends App {
     while (values.hasMoreElements) {
       count += 1
       values.nextElement()
-    }
-    values match {
-      case a: UndeclaredClosable =>
-        a.close()
-      case _ =>
     }
     count
   }
