@@ -1,5 +1,5 @@
 import java.util
-import javax.naming.{Context, NamingEnumeration}
+import javax.naming.Context
 import javax.naming.directory.{InitialDirContext, SearchControls}
 
 import org.xbill.DNS.{ARecord, Lookup, SRVRecord, Type}
@@ -12,7 +12,8 @@ object Run extends App {
   val domain = if (args.length > 0) args(0) else "alis.test"
   val user = if (args.length > 1) args(1) else "carsten.saager"
   val pass = if (args.length > 2) args(2) else "Fr4nce!!"
-  val searchString = if(args.length>3) args(3) else s"(&(objectClass=user)(sAMAccountName=$user))"
+  val searchString = if (args.length > 3) args(3) else s"(&(objectClass=user)(sAMAccountName=$user))"
+
   import Context._
 
   env.put(INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory")
@@ -40,7 +41,7 @@ object Run extends App {
 
   def checkLdap(ip: String, port: Int): Try[Int] = Try {
     env.put(PROVIDER_URL, s"ldap://$ip:$port")
-    withResource( new InitialDirContext(env)) { context =>
+    withResource(new InitialDirContext(env)) { context =>
       val searchControls = new SearchControls
       import SearchControls._
       searchControls.setReturningAttributes(Array("sAMAccountName"))
@@ -55,18 +56,21 @@ object Run extends App {
     }
   }
 
-  def timed[T](call : => T):(T,Long) = {
+  def timed[T](call: => T): (T, Long) = {
     val start = System.currentTimeMillis()
-    (call , System.currentTimeMillis() - start)
+    (call, System.currentTimeMillis() - start)
   }
-  type UndeclaredClosable = {def close():Unit}
-  def withResource[T<:UndeclaredClosable,R](res :  T)(body : T => R) = {
+
+  type UndeclaredClosable = {def close(): Unit}
+
+  def withResource[T <: UndeclaredClosable, R](res: T)(body: T => R) = {
     try {
       body(res)
     } finally {
       res.close()
     }
   }
+
   implicit def enumCount(values: java.util.Enumeration[_]): Int = {
 
     var count = 0
@@ -75,7 +79,7 @@ object Run extends App {
       values.nextElement()
     }
     values match {
-      case a:UndeclaredClosable =>
+      case a: UndeclaredClosable =>
         a.close()
       case _ =>
     }
