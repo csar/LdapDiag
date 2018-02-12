@@ -9,16 +9,19 @@ import scala.util.Try
 import scala.util.control.NonFatal
 
 object Run extends App {
+  val DISCOVERY = 0
   val env = new util.Hashtable[String, String]()
-  val domain = if (args.length > 0) args(0) else "alis.test"
-  val user = if (args.length > 1) args(1) else "carsten.saager"
-  val pass = if (args.length > 2) args(2) else "Fr4nce!!"
-  val searchString = if (args.length > 3) args(3) else s"(&(objectClass=user)(sAMAccountName=$user))"
+  val (repeat, qr) = if (args.length > 0) args(0).split(',') match {
+    case Array(a, b) => (a.toInt, b.toInt)
+    case Array(a) => (a.toInt, 1)
+  } else (1, 1)
+  val domain = if (args.length > 1) args(1) else "alis.test"
+  val user = if (args.length > 2) args(2) else "carsten.saager"
+  val pass = if (args.length > 3) args(3) else "Fr4nce!!"
+  val searchString = if (args.length > 4) args(4) else s"(&(objectClass=user)(sAMAccountName=$user))"
   val searchBase = domain.split('.').mkString("DC=", ",DC=", "")
 
   import Context._
-
-  var queryRepeat = 1
 
   env.put(INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory")
   env.put(SECURITY_AUTHENTICATION, "simple")
@@ -26,10 +29,7 @@ object Run extends App {
   env.put(SECURITY_CREDENTIALS, pass)
 
   env.put(PROVIDER_URL, "ldap:///" + searchBase)
-
-
-
-  queryRepeat = 1
+  var queryRepeat = qr
   val lookup = new Lookup("_ldap._tcp." + domain, Type.SRV)
   Try(lookup.run()).map { records =>
     for (record <- records.collect { case s: SRVRecord => s }) {
@@ -46,15 +46,17 @@ object Run extends App {
       println(s"DNS search for SRV records failed with '${lookup.getErrorString}'")
   }
 
-  for (_ <- 1 to 20) {
+  for (_ <- 1 to repeat) {
+    if (repeat > 1) queryRepeat = 1
     println("Discovery of LDAP:")
-    println(checkLdap(domain, 0))
+    println(checkLdap(domain, DISCOVERY))
     Thread.sleep(500)
-    println(s"In domain '$domain' user '$user' pass '$pass' search '$searchString'")
+    println(s"In domain '$domain' user '$user' pass '${pass.map(_ => '*')}' search '$searchString'")
     println(checkLdap(domain, 389)) //"alis-dc1-bng.alis.test ldap://alis-dc1-cdf.alis.test ldap://alis-dc1-hl.alis.test"
   }
+
   def checkLdap(ip: String, port: Int): Try[Int] = Try {
-    if (port == 0)
+    if (port == DISCOVERY)
       env.put(PROVIDER_URL, "ldap:///" + searchBase)
     else
       env.put(PROVIDER_URL, s"ldap://$ip:$port")
@@ -77,14 +79,13 @@ object Run extends App {
         println(start - System.currentTimeMillis())
         throw e
     }
-    ctx match {
-      case c: {def ldap: String} => print(c.ldap)
-      case _ =>
+    (ctx : @unchecked) match {
+      case c: Ldap @unchecked  => print(c.ldap)
     }
     println(start - System.currentTimeMillis())
     withResource(ctx) { c =>
 
-      val q = query(ip, if (port == 0) "" else searchBase) _
+      val q = query(ip, if (port == DISCOVERY) "" else searchBase) _
       (1 to queryRepeat).foldLeft(0)((_, _) => q(c))
     }
 
@@ -116,7 +117,7 @@ object Run extends App {
   }
 
   type UndeclaredClosable = {def close(): Unit}
-
+  type Ldap = {def ldap: String}
   def withResource[T <: UndeclaredClosable, R](res: T)(body: T => R) = {
     try {
       body(res)
